@@ -1,0 +1,52 @@
+# Base configuration shared by every environment.
+# Load order: base.yaml -> {APP_ENV}.yaml -> environment variables (env always wins). Secrets live ONLY in env.
+app:
+  name: LendWise Loan Management API
+  api_prefix: /api/v1
+  timezone: Asia/Kolkata
+  docs_enabled: true
+
+auth:
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  otp_ttl_seconds: 300
+  otp_max_attempts: 5
+  password_min_length: 8
+  lockout_after_failed_logins: 5
+  lockout_minutes: 15
+
+business_rules:            # editable at runtime by managers via PUT /config (stored in Mongo, this is the default)
+  assignment_radius_km: 2
+  min_credit_score: 650
+  max_foir: 0.5            # EMI must be <= 50% of monthly income
+  interest_rate_pa: 12.0
+  tenures_months: [6, 12, 18, 24, 36, 48, 60, 72, 84]
+  loan_amount: { min: 10000, max: 5000000 }
+  applicant_age: { min: 21, max: 60 }
+  loan_purposes: [Personal, Home renovation, Education, Medical, Business, Vehicle, Wedding, Debt consolidation]
+  employment_types: [Salaried, Self-employed, Business owner, Freelancer, Retired]
+
+documents:
+  max_size_mb: 5
+  allowed_mime_types: [image/jpeg, image/png, image/webp, application/pdf]
+  presigned_url_ttl_seconds: 300
+  required: [pan, aadhaar, bank, address]
+  required_if_salaried: [salary]
+
+disbursement:
+  modes: [IMPS, NEFT, RTGS]
+  imps_max_amount: 500000
+  rtgs_min_amount: 200000
+
+pagination:
+  default_page_size: 20
+  max_page_size: 100
+
+rate_limits:               # per client IP / user (slowapi + Redis)
+  default: 120/minute
+  login: 10/minute
+  otp_send: 3/minute
+  uploads: 30/minute
+
+cors:
+  allow_credentials: true

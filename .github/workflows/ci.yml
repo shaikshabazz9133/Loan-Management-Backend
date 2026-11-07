@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7.0
+        ports: ["27017:27017"]
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+    env:
+      APP_ENV: test
+      MONGODB_URI: mongodb://localhost:27017
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app tests
+      - run: mypy app
+      - run: pytest
+
+  build-image:
+    needs: lint-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: ghcr.io/${{ github.repository }}/lendwise-api:${{ github.sha }}
