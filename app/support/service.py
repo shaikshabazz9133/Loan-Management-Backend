@@ -1,1 +1,1 @@
-"""M14 Support & Health: business logic, permission checks, state transitions, events. Owner: Soughat"""
+"""M14 Support & Health: business logic, permission checks, state transitions, events."""

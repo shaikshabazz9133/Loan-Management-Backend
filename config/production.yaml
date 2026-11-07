@@ -1,9 +1,0 @@
-app:
-  docs_enabled: false         # expose OpenAPI only on the internal network
-logging:
-  level: INFO
-  json: true
-kyc:
-  aadhaar_demo_mode: false
-integrations:
-  use_sandbox: false

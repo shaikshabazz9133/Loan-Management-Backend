@@ -1,4 +1,4 @@
-"""M14 Support & Health  |  Owner: Soughat  |  2 APIs
+"""M14 Support & Health  |  2 APIs
 Liveness/readiness probes; home for customer help and support tickets.
 
 Endpoints to implement (thin handlers -> service layer):

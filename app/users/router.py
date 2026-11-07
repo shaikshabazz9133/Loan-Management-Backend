@@ -1,4 +1,4 @@
-"""M2 Users & Profile  |  Owner: Soughat  |  2 APIs
+"""M2 Users & Profile  |  2 APIs
 Shared user accounts (customer, agent, manager) and the signed-in user's own profile.
 
 Endpoints to implement (thin handlers -> service layer):

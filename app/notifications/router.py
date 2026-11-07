@@ -1,5 +1,5 @@
-"""M11 Notifications  |  Owner: Shahid  |  4 APIs
-In-app inbox; SMS/e-mail/push are sent by background workers on domain events.
+"""M11 Notifications  |  4 APIs
+In-app inbox; SMS/e-mail/push are sent on domain events.
 
 Endpoints to implement (thin handlers -> service layer):
     GET    /api/v1/notifications                               [Any]  (reusable)

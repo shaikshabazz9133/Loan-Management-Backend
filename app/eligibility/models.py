@@ -1,1 +1,1 @@
-"""M5 Eligibility, KYC & Rules: Beanie documents / embedded models. Owner: Soughat, Shahid"""
+"""M5 Eligibility, KYC & Rules: Beanie documents / embedded models."""

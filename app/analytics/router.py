@@ -1,4 +1,4 @@
-"""M13 Dashboards & Analytics  |  Owner: Shabazz  |  7 APIs
+"""M13 Dashboards & Analytics  |  7 APIs
 Role dashboards (aggregation pipelines, Redis cached), charts and exports.
 
 Endpoints to implement (thin handlers -> service layer):

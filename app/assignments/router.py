@@ -1,4 +1,4 @@
-"""M7 Agent Assignments  |  Owner: Manar  |  3 APIs
+"""M7 Agent Assignments  |  3 APIs
 Area request pool within the agent radius, atomic first-to-accept, decline.
 
 Endpoints to implement (thin handlers -> service layer):

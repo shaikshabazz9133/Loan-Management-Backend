@@ -1,1 +1,1 @@
-"""M9 Manager Decisions & Disbursement: Pydantic request/response models (DTOs). Owner: Shabazz"""
+"""M9 Manager Decisions & Disbursement: Pydantic request/response models (DTOs)."""

@@ -1,4 +1,4 @@
-"""M8 Agent Verification & Review  |  Owner: Manar  |  7 APIs
+"""M8 Agent Verification & Review  |  7 APIs
 Field/document checks, credit check, comments, recommend or reject.
 
 Endpoints to implement (thin handlers -> service layer):

@@ -1,9 +1,0 @@
-app:
-  docs_enabled: true
-logging:
-  level: DEBUG
-  json: false
-kyc:
-  aadhaar_demo_mode: true     # accept any 12-digit number; checksum failure is a warning (never in production)
-integrations:
-  use_sandbox: true           # credit bureau / KYC / payouts return simulated responses

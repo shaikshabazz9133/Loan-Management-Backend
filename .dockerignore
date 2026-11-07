@@ -1,10 +1,7 @@
 .git
-.github
 .venv
 __pycache__
 *.pyc
 .env*
 !.env.example
 tests
-docs
-*.pdf

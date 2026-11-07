@@ -1,1 +1,1 @@
-"""M9 Manager Decisions & Disbursement: business logic, permission checks, state transitions, events. Owner: Shabazz"""
+"""M9 Manager Decisions & Disbursement: business logic, permission checks, state transitions, events."""

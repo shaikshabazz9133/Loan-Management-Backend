@@ -1,6 +1,4 @@
 """FastAPI application factory. Routers are registered but contain no endpoints yet.
-
-Owner: Soughat
 """
 from contextlib import asynccontextmanager
 
@@ -34,13 +32,12 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    cfg = settings.yaml
-    prefix = cfg["app"]["api_prefix"]
+    prefix = settings.api_prefix
     app = FastAPI(
-        title=cfg["app"]["name"],
+        title=settings.app_name,
         version="1.0.0",
         lifespan=lifespan,
-        docs_url="/docs" if cfg["app"].get("docs_enabled") else None,
+        docs_url="/docs" if settings.docs_enabled else None,
         redoc_url=None,
     )
     app.add_middleware(

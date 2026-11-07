@@ -1,1 +1,1 @@
-"""EMI / total payable / FOIR calculations (used by eligibility and reviews). Owner: Soughat"""
+"""EMI / total payable / FOIR calculations (used by eligibility and reviews)."""

@@ -1,4 +1,4 @@
-"""M12 Audit Trail  |  Owner: Soughat  |  1 API
+"""M12 Audit Trail  |  1 API
 Append-only audit log and application events written on every state change; audit search.
 
 Endpoints to implement (thin handlers -> service layer):

@@ -1,4 +1,4 @@
-"""M3 Customer Management  |  Owner: Shabazz  |  4 APIs
+"""M3 Customer Management  |  4 APIs
 Manager views of customers, their application history, block/unblock.
 
 Endpoints to implement (thin handlers -> service layer):

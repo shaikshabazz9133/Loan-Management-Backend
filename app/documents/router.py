@@ -1,4 +1,4 @@
-"""M10 Documents  |  Owner: Shahid  |  5 APIs
+"""M10 Documents  |  5 APIs
 Direct-to-S3 uploads with presigned URLs, metadata, virus scan, secure download.
 
 Endpoints to implement (thin handlers -> service layer):

@@ -1,4 +1,4 @@
-"""M4 Loan Applications  |  Owner: Shahid  |  6 APIs
+"""M4 Loan Applications  |  6 APIs
 Submit, list and track applications; role-aware responses; timeline, history and the status state machine.
 
 Endpoints to implement (thin handlers -> service layer):

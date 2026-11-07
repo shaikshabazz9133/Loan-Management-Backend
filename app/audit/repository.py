@@ -1,1 +1,1 @@
-"""M12 Audit Trail: MongoDB queries only (no business rules). Owner: Soughat"""
+"""M12 Audit Trail: MongoDB queries only (no business rules)."""

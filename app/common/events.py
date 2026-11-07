@@ -1,1 +1,1 @@
-"""Domain events (ApplicationSubmitted, Accepted, Recommended, Approved, Disbursed...) -> Celery. Owner: Soughat"""
+"""Domain events (ApplicationSubmitted, Accepted, Recommended, Approved, Disbursed...) -> notification and audit handlers."""

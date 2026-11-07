@@ -1,1 +1,1 @@
-"""M8 Agent Verification & Review: Beanie documents / embedded models. Owner: Manar"""
+"""M8 Agent Verification & Review: Beanie documents / embedded models."""

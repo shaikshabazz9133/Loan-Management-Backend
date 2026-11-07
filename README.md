@@ -1,17 +1,48 @@
 # LendWise Loan Management - Backend (FastAPI + MongoDB)
 
-Production backend skeleton for the LendWise React frontend. **Architecture and structure only - endpoints are not implemented yet.**
+Backend skeleton for the LendWise React frontend. **Structure only - endpoints are not implemented yet.**
+Each module's `router.py` docstring lists the endpoints to build (method, path, roles, purpose) - 72 APIs across 14 modules.
 
-- **Architecture & API plan (PDF):** `LendWise_Backend_Architecture.pdf`
-- **Same document in Markdown:** `docs/ARCHITECTURE.md`
-- **API catalog (source of truth, 72 APIs / 14 modules):** `docs/api-catalog.yaml`
+## Project structure
 
-| Owner | Modules | APIs |
-|---|---|---|
-| Soughat | M1 Authentication, M2 Users & Profile, M5 Eligibility, KYC & Rules [rules & EMI], M12 Audit Trail, M14 Support & Health (+ core, Docker, CI) | 17 |
-| Shahid | M4 Loan Applications, M5 Eligibility, KYC & Rules [KYC & bank], M10 Documents, M11 Notifications | 19 |
-| Manar | M6 Agent Management, M7 Agent Assignments, M8 Agent Verification & Review | 19 |
-| Shabazz | M3 Customer Management, M9 Manager Decisions & Disbursement, M13 Dashboards & Analytics | 17 |
+```
+loan-management-backend/
+├── app/
+│   ├── main.py
+│   ├── core/              # config, security, permissions, exceptions, logging
+│   ├── db/                # MongoDB connection, indexes, transaction helpers
+│   ├── common/            # enums, pagination, response helpers
+│   ├── auth/              # login, tokens, OTP, password reset
+│   ├── users/             # user accounts and own profile
+│   ├── customers/         # manager views of customers
+│   ├── loans/             # loan applications + status state machine
+│   ├── eligibility/       # KYC, bank checks, business rules, EMI
+│   ├── agents/            # agent management
+│   ├── assignments/       # open requests, accept / decline
+│   ├── reviews/           # agent verification, credit check, recommend
+│   ├── managers/          # approve / reject / disburse
+│   ├── documents/         # S3 uploads and downloads
+│   ├── notifications/     # in-app inbox
+│   ├── audit/             # audit trail
+│   ├── analytics/         # dashboards and reports
+│   └── support/           # health checks, help & support
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── conftest.py
+├── scripts/               # initial admin, index creation, seed rules
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+├── .env                   # local only; never commit
+├── .dockerignore
+├── .gitignore
+└── README.md
+```
+
+Each module package contains `router.py`, `schemas.py`, `service.py`, `repository.py` and `models.py`.
+Build in this order: `models.py` -> `repository.py` -> `schemas.py` -> `service.py` -> `router.py` -> tests.
 
 ## Run locally
 
@@ -22,10 +53,4 @@ docker compose up --build
 # MinIO:     http://localhost:9001     Mailpit: http://localhost:8025
 ```
 
-## Where to start (each owner)
-
-Open `app/<your module>/router.py` - the docstring lists every endpoint you own (method, path, roles, purpose).
-Build in this order: `models.py` -> `repository.py` -> `schemas.py` -> `service.py` -> `router.py` -> tests.
-Use the shared pieces in `app/core`, `app/common` and `app/db` (permissions, errors, pagination, response helpers, transactions), plus `app/audit` and `app/loans/state_machine.py`, instead of writing your own.
-
-If you change an endpoint, update `docs/api-catalog.yaml` first.
+Settings defaults (business rules, auth, documents, pagination) live in `app/core/config.py`; any value can be overridden with an environment variable in `.env`.

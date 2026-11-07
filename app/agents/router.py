@@ -1,4 +1,4 @@
-"""M6 Agent Management  |  Owner: Manar  |  9 APIs
+"""M6 Agent Management  |  9 APIs
 Manager CRUD for agents including GeoJSON location; geo search of nearby agents.
 
 Endpoints to implement (thin handlers -> service layer):

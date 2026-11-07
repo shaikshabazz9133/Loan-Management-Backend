@@ -1,1 +1,1 @@
-"""M11 Notifications: MongoDB queries only (no business rules). Owner: Shahid"""
+"""M11 Notifications: MongoDB queries only (no business rules)."""

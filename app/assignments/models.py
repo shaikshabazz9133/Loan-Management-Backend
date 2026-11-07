@@ -1,1 +1,1 @@
-"""M7 Agent Assignments: Beanie documents / embedded models. Owner: Manar"""
+"""M7 Agent Assignments: Beanie documents / embedded models."""

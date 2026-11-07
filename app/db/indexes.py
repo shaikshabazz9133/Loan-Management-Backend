@@ -9,6 +9,4 @@ notifications:    {user_id: 1, read: 1, created_at: -1}
 disbursements:    {application_id: 1} unique, {utr: 1} unique sparse, {status: 1}
 audit_logs:       {entity: 1, entity_id: 1, at: -1}, {actor_id: 1, at: -1}
 sessions:         {expires_at: 1} TTL, otp_codes: {expires_at: 1} TTL, idempotency_keys: {created_at: 1} TTL 24h
-
-Owner: Soughat (with each module owner)
 """

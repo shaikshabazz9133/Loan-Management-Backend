@@ -1,1 +1,1 @@
-"""M12 Audit Trail: Pydantic request/response models (DTOs). Owner: Soughat"""
+"""M12 Audit Trail: Pydantic request/response models (DTOs)."""

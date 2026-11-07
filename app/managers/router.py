@@ -1,4 +1,4 @@
-"""M9 Manager Decisions & Disbursement  |  Owner: Shabazz  |  6 APIs
+"""M9 Manager Decisions & Disbursement  |  6 APIs
 Final approval/rejection and payout to the verified bank account.
 
 Endpoints to implement (thin handlers -> service layer):

@@ -11,7 +11,6 @@ x-app: &app
     APP_ENV: development
   volumes:
     - ./app:/srv/app/app
-    - ./config:/srv/app/config
   depends_on:
     mongo:
       condition: service_healthy
@@ -26,14 +25,6 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
-
-  worker:
-    <<: *app
-    command: celery -A app.workers.celery_app worker --loglevel=INFO --concurrency=2
-
-  beat:
-    <<: *app
-    command: celery -A app.workers.celery_app beat --loglevel=INFO
 
   mongo:
     image: mongo:7.0

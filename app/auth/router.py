@@ -1,4 +1,4 @@
-"""M1 Authentication  |  Owner: Soughat  |  9 APIs
+"""M1 Authentication  |  9 APIs
 Sign-up, login (email or mobile), JWT access/refresh rotation, OTP, password reset.
 
 Endpoints to implement (thin handlers -> service layer):

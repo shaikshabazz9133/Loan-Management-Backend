@@ -1,1 +1,1 @@
-"""M11 Notifications: business logic, permission checks, state transitions, events. Owner: Shahid"""
+"""M11 Notifications: business logic, permission checks, state transitions, events."""

@@ -1,6 +1,4 @@
 """MongoDB connection (Motor) and Beanie ODM initialisation.
-
-Owner: Soughat
 """
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -13,7 +11,7 @@ async def connect() -> None:
     global _client
     settings = get_settings()
     _client = AsyncIOMotorClient(settings.mongodb_uri, uuidRepresentation="standard", tz_aware=True)
-    # TODO (each owner): register Beanie document models here once they exist
+    # TODO: register Beanie document models here once they exist
     # await init_beanie(database=_client[settings.mongodb_db], document_models=[...])
 
 

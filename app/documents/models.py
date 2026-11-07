@@ -1,1 +1,1 @@
-"""M10 Documents: Beanie documents / embedded models. Owner: Shahid"""
+"""M10 Documents: Beanie documents / embedded models."""
