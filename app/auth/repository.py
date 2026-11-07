@@ -1,1 +1,1 @@
-"""M1 Authentication: MongoDB queries only (no business rules)."""
+"""Not used: auth reads and writes users through app/users/repository.py."""

@@ -12,7 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AUTH: dict[str, Any] = {
     "access_token_ttl_minutes": 15,
-    "refresh_token_ttl_days": 7,
+    "refresh_token_ttl_days": 1,  # "Remember me" unticked
+    "remember_me_ttl_days": 30,  # "Remember me" ticked
     "otp_ttl_seconds": 300,
     "otp_max_attempts": 5,
     "password_min_length": 8,

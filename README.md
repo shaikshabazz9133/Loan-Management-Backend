@@ -44,13 +44,41 @@ loan-management-backend/
 Each module package contains `router.py`, `schemas.py`, `service.py`, `repository.py` and `models.py`.
 Build in this order: `models.py` -> `repository.py` -> `schemas.py` -> `service.py` -> `router.py` -> tests.
 
-## Run locally
+## Run locally (without Docker)
 
 ```bash
-cp .env.example .env
-docker compose up --build
-# API docs:  http://localhost:8000/docs
-# MinIO:     http://localhost:9001     Mailpit: http://localhost:8025
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env              # then set MONGODB_URI (Atlas: replace <db_password>) and SECRET_KEY
+python -m scripts.create_manager  # one time: creates the manager account
+uvicorn app.main:app --reload     # API docs: http://localhost:8000/docs
+pytest -v                         # tests use an in-memory database
 ```
 
+Or with Docker: `docker compose up --build`.
+
 Settings defaults (business rules, auth, documents, pagination) live in `app/core/config.py`; any value can be overridden with an environment variable in `.env`.
+
+## Authentication APIs
+
+Base URL `http://localhost:8000/api/v1`. JSON is camelCase. Send the access token as `Authorization: Bearer <accessToken>`.
+
+| Method | Path | Who | Body |
+|---|---|---|---|
+| POST | `/auth/register` | Public (customer sign-up) | `{name, email, mobile, password, termsAccepted}` |
+| POST | `/auth/login` | Public (all roles) | `{identifier, password, remember}` - identifier = email or mobile |
+| POST | `/auth/refresh` | Public | `{refreshToken}` |
+| GET | `/auth/me` | Signed in | - |
+| POST | `/agents` | Manager | `{name, email, mobile, password, area, city, location: {lat, lng}, active}` |
+| GET | `/agents` | Manager | - |
+| PATCH | `/agents/{id}` | Manager | any of the create fields, e.g. `{active: false}`; omit `password` to keep it |
+| DELETE | `/agents/{id}` | Manager | - |
+
+`register`, `login` and `refresh` return `{accessToken, refreshToken, tokenType, user}`; `user.role` (`customer` / `agent` / `manager`) tells the frontend which portal to open.
+
+Who signs in how:
+1. **Customer** creates an account with `/auth/register` and is signed in immediately.
+2. **Manager** account is created once by `python -m scripts.create_manager` (login details from `MANAGER_EMAIL` / `MANAGER_MOBILE` / `MANAGER_PASSWORD` in `.env`).
+3. **Agent** accounts are created only by the manager (`POST /agents`); the agent then signs in with that email/mobile and password. Inactive agents cannot sign in.
+
+Errors always look like `{"error": {"code": "EMAIL_TAKEN", "message": "...", "details": {"field": "message"}}}` (`details` only for validation errors).

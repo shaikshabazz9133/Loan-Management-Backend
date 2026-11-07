@@ -1,12 +1,14 @@
-"""All index definitions in one place (run on startup / migration).
+"""All MongoDB indexes in one place. Runs on every startup (creating an index that exists is a no-op).
 
-users:            {email: 1} unique, {mobile: 1} unique, {role: 1, active: 1}, {location: "2dsphere"} (agents)
-applications:     {customer_id: 1, created_at: -1}, {agent_id: 1, status: 1}, {status: 1, created_at: -1},
-                  {location: "2dsphere"}, {app_no: 1} unique, {"declined_by.agent_id": 1}
-application_events: {application_id: 1, at: 1}
-documents:        {application_id: 1, type: 1}
-notifications:    {user_id: 1, read: 1, created_at: -1}
-disbursements:    {application_id: 1} unique, {utr: 1} unique sparse, {status: 1}
-audit_logs:       {entity: 1, entity_id: 1, at: -1}, {actor_id: 1, at: -1}
-sessions:         {expires_at: 1} TTL, otp_codes: {expires_at: 1} TTL, idempotency_keys: {created_at: 1} TTL 24h
+users: one collection for customers, agents and managers (the "role" field tells them apart).
+  - email and mobile are unique, so two accounts can never share them (even under a race).
+  - location is a 2dsphere index for "agents within 2 km" queries.
 """
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
+
+async def create_indexes(db: AsyncIOMotorDatabase) -> None:
+    await db.users.create_index("email", unique=True)
+    await db.users.create_index("mobile", unique=True)
+    await db.users.create_index([("role", 1), ("active", 1)])
+    await db.users.create_index([("location", "2dsphere")])
