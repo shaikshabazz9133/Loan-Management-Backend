@@ -14,6 +14,7 @@ RUN groupadd --system app && useradd --system --gid app --home /srv/app app
 WORKDIR /srv/app
 COPY --from=builder /opt/venv /opt/venv
 COPY app ./app
+COPY scripts ./scripts
 USER app
 EXPOSE 8000
 # TCP check (the /health endpoint is implemented by the System module, M2)

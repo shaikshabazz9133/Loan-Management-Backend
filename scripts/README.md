@@ -1,1 +1,3 @@
-Ops scripts: `create_indexes.py`, `seed_demo_data.py`, `create_manager.py` (to be written).
+Ops scripts (run from the backend folder):
+
+- `python -m scripts.create_manager` - create the manager account (reads MANAGER_EMAIL / MANAGER_MOBILE / MANAGER_PASSWORD from .env).

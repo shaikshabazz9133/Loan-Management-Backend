@@ -1,12 +1,19 @@
-"""M2 Users & Profile  |  2 APIs
-Shared user accounts (customer, agent, manager) and the signed-in user's own profile.
+"""M2 Users & Profile
 
-Endpoints to implement (thin handlers -> service layer):
-    GET    /api/v1/auth/me                                     [Any]  (reusable)
-        Current user, role and permissions
-    PATCH  /api/v1/auth/me                                     [Any]  (reusable)
-        Update own profile (mobile change needs OTP)
+Done:
+    GET    /api/v1/auth/me            [Any]   Current signed-in user (used on page refresh to restore the session)
+
+To do:
+    PATCH  /api/v1/auth/me            [Any]   Update own profile (mobile change needs OTP)
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-router = APIRouter(tags=["Users & Profile"])
+from app.core.deps import get_current_user
+from app.users.schemas import UserOut
+
+router = APIRouter(prefix="/auth", tags=["Users & Profile"])
+
+
+@router.get("/me", response_model=UserOut, response_model_exclude_none=True)
+async def me(user: dict = Depends(get_current_user)) -> UserOut:
+    return UserOut.from_doc(user)

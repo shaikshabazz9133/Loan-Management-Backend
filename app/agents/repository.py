@@ -1,1 +1,1 @@
-"""M6 Agent Management: MongoDB queries only (no business rules)."""
+"""Not used: agents are stored in the "users" collection - see app/users/repository.py."""

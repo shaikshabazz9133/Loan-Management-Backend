@@ -1,26 +1,35 @@
-"""M1 Authentication  |  9 APIs
-Sign-up, login (email or mobile), JWT access/refresh rotation, OTP, password reset.
+"""M1 Authentication
 
-Endpoints to implement (thin handlers -> service layer):
-    POST   /api/v1/auth/register                               [Public]
-        Customer sign-up (name, email, mobile, password, terms)
-    POST   /api/v1/auth/login                                  [Public]  (reusable)
-        Login with email or mobile; returns tokens + role for redirect
-    POST   /api/v1/auth/refresh                                [Public]  (reusable)
-        Rotate access/refresh tokens (refresh-token reuse detection)
-    POST   /api/v1/auth/logout                                 [Any]  (reusable)
-        Revoke current refresh token / session
-    POST   /api/v1/auth/otp/send                               [Public]  (reusable)
-        Send OTP to mobile (sign-up verification, reset)
-    POST   /api/v1/auth/otp/verify                             [Public]  (reusable)
-        Verify OTP and return a short-lived verification token
-    POST   /api/v1/auth/forgot-password                        [Public]  (reusable)
-        Start password reset (same response whether or not user exists)
-    POST   /api/v1/auth/reset-password                         [Public]  (reusable)
-        Set new password using reset token
-    POST   /api/v1/auth/change-password                        [Any]  (reusable)
-        Change password when logged in
+Done:
+    POST   /api/v1/auth/register          [Public]  Customer sign-up -> returns tokens (signed in right away)
+    POST   /api/v1/auth/login             [Public]  Sign in with email or mobile -> tokens + user (role)
+    POST   /api/v1/auth/refresh           [Public]  New token pair from a refresh token
+
+To do:
+    POST   /api/v1/auth/logout                      Revoke refresh token (frontend can simply delete tokens for now)
+    POST   /api/v1/auth/otp/send, /otp/verify       Mobile OTP
+    POST   /api/v1/auth/forgot-password, /reset-password   Needs an email/SMS provider
+    POST   /api/v1/auth/change-password             Change password when logged in
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 
-router = APIRouter(tags=["Authentication"])
+from app.auth import service
+from app.auth.schemas import AuthResponse, LoginRequest, RefreshRequest, RegisterRequest
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/register", response_model=AuthResponse, response_model_exclude_none=True,
+             status_code=status.HTTP_201_CREATED)
+async def register(data: RegisterRequest) -> AuthResponse:
+    return await service.register(data)
+
+
+@router.post("/login", response_model=AuthResponse, response_model_exclude_none=True)
+async def login(data: LoginRequest) -> AuthResponse:
+    return await service.login(data)
+
+
+@router.post("/refresh", response_model=AuthResponse, response_model_exclude_none=True)
+async def refresh(data: RefreshRequest) -> AuthResponse:
+    return await service.refresh(data.refresh_token)
