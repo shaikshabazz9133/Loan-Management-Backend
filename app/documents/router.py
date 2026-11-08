@@ -1,18 +1,50 @@
-"""M10 Documents  |  5 APIs
-Direct-to-S3 uploads with presigned URLs, metadata, virus scan, secure download.
+"""Customer document upload and download endpoints."""
 
-Endpoints to implement (thin handlers -> service layer):
-    POST   /api/v1/documents/upload-url                        [Customer]  (reusable)
-        Presigned PUT URL (type, size and MIME validated)
-    POST   /api/v1/documents                                   [Customer]  (reusable)
-        Confirm upload and save metadata; queues virus scan
-    GET    /api/v1/applications/{id}/documents                 [Customer, Agent, Manager]  (reusable)
-        List documents of an application
-    GET    /api/v1/documents/{id}/download-url                 [Customer, Agent, Manager]  (reusable)
-        Short-lived presigned GET URL
-    DELETE /api/v1/documents/{id}                              [Customer]
-        Remove a document before submission
-"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi.responses import Response
 
-router = APIRouter(tags=["Documents"])
+from app.core.permissions import require_roles
+from app.documents.schemas import DocumentCreated
+from app.documents.service import DocumentService
+
+router = APIRouter(prefix="/documents", tags=["Customer Documents"])
+customer_access = Depends(require_roles("customer"))
+
+
+@router.post("", status_code=201, response_model=DocumentCreated)
+async def upload_document(
+    document_type: str = Form(...),
+    file: UploadFile = File(...),
+    loan_id: str | None = Form(default=None),
+    current_user: dict = customer_access,
+):
+    """Upload a customer-owned KYC or income document."""
+    data = await file.read(5 * 1024 * 1024 + 1)
+    document = await DocumentService().upload(
+        current_user,
+        document_type=document_type,
+        filename=file.filename or "upload",
+        content_type=file.content_type or "application/octet-stream",
+        content=data,
+        loan_id=loan_id,
+    )
+    return document
+
+
+@router.get("/{document_id}/download")
+async def download_document(
+    document_id: str,
+    current_user: dict = customer_access,
+):
+    """Download a document owned by the authenticated customer."""
+    document = await DocumentService().get_for_download(
+        current_user, document_id
+    )
+    return Response(
+        content=document["content"],
+        media_type=document["content_type"],
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{document["filename"]}"'
+        },
+    )

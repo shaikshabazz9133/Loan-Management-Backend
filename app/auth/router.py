@@ -1,26 +1,20 @@
-"""M1 Authentication  |  9 APIs
-Sign-up, login (email or mobile), JWT access/refresh rotation, OTP, password reset.
+"""Customer registration and login endpoints."""
 
-Endpoints to implement (thin handlers -> service layer):
-    POST   /api/v1/auth/register                               [Public]
-        Customer sign-up (name, email, mobile, password, terms)
-    POST   /api/v1/auth/login                                  [Public]  (reusable)
-        Login with email or mobile; returns tokens + role for redirect
-    POST   /api/v1/auth/refresh                                [Public]  (reusable)
-        Rotate access/refresh tokens (refresh-token reuse detection)
-    POST   /api/v1/auth/logout                                 [Any]  (reusable)
-        Revoke current refresh token / session
-    POST   /api/v1/auth/otp/send                               [Public]  (reusable)
-        Send OTP to mobile (sign-up verification, reset)
-    POST   /api/v1/auth/otp/verify                             [Public]  (reusable)
-        Verify OTP and return a short-lived verification token
-    POST   /api/v1/auth/forgot-password                        [Public]  (reusable)
-        Start password reset (same response whether or not user exists)
-    POST   /api/v1/auth/reset-password                         [Public]  (reusable)
-        Set new password using reset token
-    POST   /api/v1/auth/change-password                        [Any]  (reusable)
-        Change password when logged in
-"""
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 
-router = APIRouter(tags=["Authentication"])
+from app.auth.schemas import LoginRequest, RegisterRequest, TokenResponse
+from app.auth.service import AuthService
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def register_customer(payload: RegisterRequest):
+    """Create a customer account and return its access token."""
+    return await AuthService().register_customer(payload)
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login_customer(payload: LoginRequest):
+    """Sign in using email address or phone number."""
+    return await AuthService().login_customer(payload)
