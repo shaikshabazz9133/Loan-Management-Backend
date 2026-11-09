@@ -41,9 +41,7 @@ class Conflict(AppError):
 
 
 class Unprocessable(AppError):
-    """Input that passed the schema but breaks a rule, e.g. a missing document. Pass details for per-field messages."""
-
-    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 def _error(status_code: int, code: str, message: str, details: dict | None = None) -> JSONResponse:
