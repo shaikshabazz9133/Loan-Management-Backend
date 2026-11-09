@@ -1,4 +1,5 @@
-"""Customer submits a loan application (form + documents in one request); each role sees the right list."""
+"""Guest applies (no login) -> tracks status with id + mobile; any agent accepts (first wins) -> agent decides ->
+manager decides -> manager disburses. Plus the customer list built from applications."""
 import json
 from datetime import date
 
@@ -6,21 +7,19 @@ import pytest
 
 PDF = b"%PDF-1.4 test document"
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+MOBILE = "9898989898"
 
-CUSTOMER = {"name": "Usman Khan", "email": "usman@example.com", "mobile": "9898989898",
-            "password": "Test@1234", "termsAccepted": True}
-NEAR = {"lat": 17.4152, "lng": 78.4421}  # Banjara Hills
-FAR = {"lat": 17.4058, "lng": 78.5591}  # Uppal, ~12 km away
 AGENT = {"name": "Ravi Kumar", "email": "ravi.agent@example.com", "mobile": "9000000011", "password": "agent123",
-         "area": "Banjara Hills", "city": "Hyderabad", "location": {"lat": 17.4126, "lng": 78.4482}}
+         "area": "Banjara Hills", "city": "Hyderabad"}
+AGENT_2 = {**AGENT, "name": "Priya Sharma", "email": "priya@example.com", "mobile": "9000000012"}
 
 
 def form(**overrides) -> dict:
     data = {
-        "fullName": "Usman Khan", "mobile": "9898989898", "email": "usman@example.com",
+        "fullName": "Usman Khan", "mobile": MOBILE, "email": "usman@example.com",
         "dob": date(date.today().year - 30, 5, 20).isoformat(), "aadhaar": "234567890120", "pan": "ABCPK1234D",
         "amount": 200000, "tenure": 24, "purpose": "Education", "income": 60000, "employment": "Self-employed",
-        "address": "12 Road No. 3, Banjara Hills", "city": "Hyderabad", "pincode": "500034", "location": NEAR,
+        "address": "12 Road No. 3, Banjara Hills", "city": "Hyderabad", "pincode": "500034",
         "bank": {"holder": "Usman Khan", "account": "50100234567890", "ifsc": "HDFC0001234", "type": "Savings"},
         "consent": True,
     }
@@ -32,187 +31,230 @@ def files(*keys: str) -> dict:
     return {k: (f"{k}.pdf", PDF, "application/pdf") for k in keys}
 
 
-async def sign_up(client, **overrides) -> dict:
-    res = await client.post("/auth/register", json={**CUSTOMER, **overrides})
-    return {"Authorization": f"Bearer {res.json()['accessToken']}"}
+async def submit(client, data=None, upload=None):
+    """No Authorization header: applicants don't have accounts."""
+    return await client.post("/applications", data={"data": json.dumps(data or form())},
+                             files=upload if upload is not None else files())
 
 
-async def submit(client, headers, data=None, upload=None):
-    return await client.post("/applications", headers=headers,
-                             data={"data": json.dumps(data or form())}, files=upload if upload is not None else files())
+async def new_application(client, **overrides) -> str:
+    res = await submit(client, form(**overrides))
+    assert res.status_code == 201, res.text
+    return res.json()["application"]["id"]
+
+
+async def agent_login(client, manager_headers, agent=AGENT) -> dict:
+    await client.post("/agents", json=agent, headers=manager_headers)
+    login = await client.post("/auth/login", json={"identifier": agent["email"], "password": agent["password"]})
+    return {"Authorization": f"Bearer {login.json()['accessToken']}"}
+
+
+async def act(client, headers, app_id, action, **body):
+    return await client.post(f"/applications/{app_id}/actions", headers=headers, json={"action": action, **body})
+
+
+async def track(client, app_id, mobile=MOBILE):
+    return await client.post("/applications/track", json={"applicationId": app_id, "mobile": mobile})
+
+
+# ---------- applicant (public) ----------
+
+@pytest.mark.asyncio
+async def test_options_and_quote_are_public(client):
+    options = await client.get("/applications/options")
+    assert options.status_code == 200
+    assert "Education" in options.json()["loanPurposes"] and "assignmentRadiusKm" not in options.json()
+
+    quote = await client.post("/eligibility/quote", json={"pan": "ABCPK1234D", "amount": 200000, "income": 60000,
+                                                          "tenure": 24})
+    assert quote.status_code == 200
+    assert (quote.json()["creditScore"], quote.json()["ratePa"], quote.json()["emi"]) == (805, 10.0, 9229)
 
 
 @pytest.mark.asyncio
-async def test_options_come_from_the_server(client):
-    headers = await sign_up(client)
-    res = await client.get("/applications/options", headers=headers)
-    assert res.status_code == 200
-    body = res.json()
-    assert "Education" in body["loanPurposes"] and 24 in body["tenuresMonths"]
-    assert body["loanAmount"] == {"min": 10000, "max": 5000000}
-    salary = next(d for d in body["documents"]["types"] if d["key"] == "salary")
-    assert salary["onlyFor"] == "Salaried"
-
-
-@pytest.mark.asyncio
-async def test_customer_submits_application_with_documents(client, manager_headers):
-    await client.post("/agents", json=AGENT, headers=manager_headers)
-    headers = await sign_up(client)
-
-    res = await submit(client, headers)
+async def test_guest_submits_application_without_login(client):
+    res = await submit(client)
 
     assert res.status_code == 201, res.text
-    body = res.json()
-    app = body["application"]
+    app = res.json()["application"]
     assert app["id"] == "LN-1001" and app["status"] == "unassigned"
-    assert body["areaAgents"] == 1
-    assert app["bank"]["bankName"] == "HDFC Bank"
-    assert app["location"] == NEAR
+    assert app["customerId"] == MOBILE
+    assert (app["creditScore"], app["interestRatePa"], app["emi"]) == (805, 10.0, 9229)
+    assert "location" not in app
     assert set(app["documents"]) == {"pan", "aadhaar", "bank", "address"}
-    assert "fileId" not in app["documents"]["pan"]
-    assert [h["action"] for h in app["history"]] == ["Application submitted", "Sent to manager & area agents"]
-
-    doc = await client.get(f"/applications/{app['id']}/documents/pan", headers=headers)
-    assert doc.status_code == 200 and doc.content == PDF
-    assert doc.headers["content-type"] == "application/pdf"
+    assert [h["action"] for h in app["history"]] == ["Application submitted", "Sent to agents"]
 
 
 @pytest.mark.asyncio
 async def test_validation_errors_are_per_field(client):
-    headers = await sign_up(client)
-    res = await submit(client, headers, form(pan="ABCDE1234F", amount=5000, tenure=7, purpose="Holiday"))
+    res = await submit(client, form(pan="ABCDE1234F", amount=5000, tenure=7, purpose="Holiday"))
     assert res.status_code == 422
-    details = res.json()["error"]["details"]
-    assert {"pan", "amount", "tenure", "purpose"} <= set(details)
+    assert {"pan", "amount", "tenure", "purpose"} <= set(res.json()["error"]["details"])
 
 
 @pytest.mark.asyncio
-async def test_salaried_applicant_must_upload_salary_slips(client):
-    headers = await sign_up(client)
-    res = await submit(client, headers, form(employment="Salaried"))
-    assert res.status_code == 422
-    assert "doc_salary" in res.json()["error"]["details"]
+async def test_document_rules(client):
+    salaried = await submit(client, form(employment="Salaried"))
+    assert "doc_salary" in salaried.json()["error"]["details"]
+
+    fake = await submit(client, upload={**files(), "pan": ("pan.pdf", b"MZ not a pdf", "application/pdf")})
+    assert fake.json()["error"]["details"]["doc_pan"] == "Upload a JPG, PNG, WEBP or PDF file."
+
+    png = await submit(client, upload={**files(), "aadhaar": ("aadhaar.png", PNG, "image/png")})
+    assert png.status_code == 201
 
 
 @pytest.mark.asyncio
-async def test_rejects_files_that_are_not_what_they_claim(client):
-    headers = await sign_up(client)
-    upload = {**files(), "pan": ("pan.pdf", b"MZ not really a pdf", "application/pdf")}
-    res = await submit(client, headers, upload=upload)
-    assert res.status_code == 422
-    assert res.json()["error"]["details"]["doc_pan"] == "Upload a JPG, PNG, WEBP or PDF file."
+async def test_low_credit_score_cannot_submit(client):
+    res = await submit(client, form(pan="ABAPC1234D"))  # simulated score 526
+    assert res.status_code == 422 and res.json()["error"]["code"] == "CREDIT_SCORE_TOO_LOW"
 
 
 @pytest.mark.asyncio
-async def test_png_documents_are_accepted(client):
-    headers = await sign_up(client)
-    upload = {**files(), "aadhaar": ("aadhaar.png", PNG, "image/png")}
-    assert (await submit(client, headers, upload=upload)).status_code == 201
+async def test_track_needs_matching_id_and_mobile_and_hides_sensitive_data(client):
+    app_id = await new_application(client)
 
-
-@pytest.mark.asyncio
-async def test_only_customers_can_submit(client, manager_headers):
-    assert (await submit(client, manager_headers)).status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_lists_are_scoped_by_role(client, manager_headers):
-    await client.post("/agents", json=AGENT, headers=manager_headers)
-    usman = await sign_up(client)
-    other = await sign_up(client, email="asha@example.com", mobile="9797979797", name="Asha Rao")
-    near_app = (await submit(client, usman)).json()["application"]["id"]
-    far_app = (await submit(client, other, form(location=FAR))).json()["application"]["id"]
-
-    mine = (await client.get("/applications", headers=usman)).json()
-    assert [a["id"] for a in mine] == [near_app]
-
-    everything = (await client.get("/applications", headers=manager_headers)).json()
-    assert [a["id"] for a in everything] == [far_app, near_app]  # newest first
-
-    login = await client.post("/auth/login", json={"identifier": AGENT["email"], "password": AGENT["password"]})
-    agent = {"Authorization": f"Bearer {login.json()['accessToken']}"}
-    in_area = (await client.get("/applications", headers=agent)).json()
-    assert [a["id"] for a in in_area] == [near_app]
-
-    # documents follow the same rules
-    assert (await client.get(f"/applications/{far_app}/documents/pan", headers=usman)).status_code == 403
-    assert (await client.get(f"/applications/{far_app}/documents/pan", headers=agent)).status_code == 403
-    assert (await client.get(f"/applications/{far_app}/documents/pan", headers=manager_headers)).status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_nearby_agents_hide_contact_details(client, manager_headers):
-    await client.post("/agents", json=AGENT, headers=manager_headers)
-    await client.post("/agents", json={**AGENT, "email": "far@example.com", "mobile": "9000000012",
-                                       "location": FAR}, headers=manager_headers)
-    headers = await sign_up(client)
-
-    res = await client.get("/agents/nearby", params=NEAR, headers=headers)
-
+    res = await track(client, app_id.lower())  # id is case-insensitive
     assert res.status_code == 200
-    agents = res.json()
-    assert len(agents) == 1
-    assert agents[0]["name"] == "Ravi Kumar" and agents[0]["distanceKm"] < 2
-    assert "email" not in agents[0] and "mobile" not in agents[0]
+    body = res.json()
+    assert body["status"] == "unassigned" and body["bankLabel"] == "HDFC Bank •••• 7890"
+    assert [s["action"] for s in body["steps"]] == ["Application submitted", "Sent to agents"]
+    for secret in ("aadhaar", "pan", "bank", "documents", "mobile", "email"):
+        assert secret not in body
+
+    wrong_mobile = await track(client, app_id, "9123456789")
+    missing = await track(client, "LN-9999")
+    assert wrong_mobile.status_code == missing.status_code == 404
+    assert wrong_mobile.json() == missing.json()  # can't tell which ids exist
+
+
+# ---------- staff workflow ----------
+
+@pytest.mark.asyncio
+async def test_staff_endpoints_need_sign_in(client):
+    app_id = await new_application(client)
+    assert (await client.get("/applications")).status_code == 401
+    assert (await client.get(f"/applications/{app_id}/documents/pan")).status_code == 401
+    assert (await client.post(f"/applications/{app_id}/actions", json={"action": "accept"})).status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_new_customer_appears_in_managers_customer_list(client, manager_headers):
-    await sign_up(client)
+async def test_full_flow_from_apply_to_disbursed(client, manager_headers):
+    ravi = await agent_login(client, manager_headers)
+    app_id = await new_application(client)
+
+    # every agent sees the open application
+    assert [a["id"] for a in (await client.get("/applications", headers=ravi)).json()] == [app_id]
+
+    accepted = await act(client, ravi, app_id, "accept")
+    assert accepted.status_code == 200
+    assert (accepted.json()["status"], accepted.json()["agentName"]) == ("assigned", "Ravi Kumar")
+    assert (await track(client, app_id)).json()["agentName"] == "Ravi Kumar"
+
+    recommended = await act(client, ravi, app_id, "approve", note="Documents verified")
+    assert recommended.json()["status"] == "agent_approved"
+    assert recommended.json()["agentDecision"]["decision"] == "recommended"
+
+    approved = await act(client, manager_headers, app_id, "approve")
+    assert approved.json()["status"] == "approved"
+
+    paid = await act(client, manager_headers, app_id, "disburse", mode="NEFT")
+    assert paid.status_code == 200
+    disbursement = paid.json()["disbursement"]
+    assert paid.json()["status"] == "disbursed" and disbursement["amount"] == 200000
+    assert disbursement["utr"].startswith("HDFCN")
+
+    status = (await track(client, app_id)).json()
+    assert status["status"] == "disbursed" and status["disbursement"]["utr"] == disbursement["utr"]
+    assert [s["action"] for s in status["steps"]][-4:] == [
+        "Accepted by agent", "Recommended for approval", "Loan approved", "Amount disbursed"]
+
+
+@pytest.mark.asyncio
+async def test_first_agent_to_accept_wins(client, manager_headers):
+    ravi = await agent_login(client, manager_headers)
+    priya = await agent_login(client, manager_headers, AGENT_2)
+    app_id = await new_application(client)
+
+    assert (await act(client, ravi, app_id, "accept")).status_code == 200
+    late = await act(client, priya, app_id, "accept")
+    assert late.status_code == 409 and late.json()["error"]["code"] == "ALREADY_TAKEN"
+
+    assert (await client.get("/applications", headers=priya)).json() == []  # no longer open
+    assert (await client.get(f"/applications/{app_id}/documents/pan", headers=priya)).status_code == 403
+    assert (await client.get(f"/applications/{app_id}/documents/pan", headers=ravi)).content == PDF
+    nope = await act(client, priya, app_id, "approve")
+    assert nope.status_code == 403 and nope.json()["error"]["code"] == "NOT_YOUR_APPLICATION"
+
+
+@pytest.mark.asyncio
+async def test_steps_must_happen_in_order(client, manager_headers):
+    ravi = await agent_login(client, manager_headers)
+    app_id = await new_application(client)
+
+    assert (await act(client, ravi, app_id, "approve")).status_code == 403  # not accepted yet
+    assert (await act(client, manager_headers, app_id, "approve")).status_code == 409  # agent hasn't decided
+    assert (await act(client, manager_headers, app_id, "accept")).status_code == 403  # managers don't accept
+    assert (await act(client, ravi, app_id, "disburse", mode="NEFT")).status_code == 403  # agents don't pay
+
+
+@pytest.mark.asyncio
+async def test_rejection_needs_a_reason_and_customer_sees_it(client, manager_headers):
+    ravi = await agent_login(client, manager_headers)
+    app_id = await new_application(client)
+    await act(client, ravi, app_id, "accept")
+
+    assert (await act(client, ravi, app_id, "reject")).status_code == 422
+    rejected = await act(client, ravi, app_id, "reject", reason="Income could not be verified", note="internal")
+    assert rejected.json()["status"] == "agent_rejected"
+
+    status = (await track(client, app_id)).json()
+    assert status["agentDecision"] == {"decision": "rejected", "reason": "Income could not be verified",
+                                       "at": status["agentDecision"]["at"]}
+
+
+@pytest.mark.asyncio
+async def test_manager_can_reject_before_any_agent_and_disburse_mode_is_checked(client, manager_headers):
+    app_id = await new_application(client)
+    rejected = await act(client, manager_headers, app_id, "reject", reason="Duplicate application")
+    assert rejected.json()["status"] == "rejected"
+
+    ravi = await agent_login(client, manager_headers)
+    big = await new_application(client, amount=600000)
+    await act(client, ravi, big, "accept")
+    await act(client, ravi, big, "approve")
+    await act(client, manager_headers, big, "approve")
+    imps = await act(client, manager_headers, big, "disburse", mode="IMPS")  # IMPS max ₹5,00,000
+    assert imps.status_code == 400 and imps.json()["error"]["code"] == "INVALID_MODE"
+    assert (await act(client, manager_headers, big, "disburse", mode="RTGS")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_deactivated_agent_returns_work_and_cannot_be_deleted_with_history(client, manager_headers):
+    ravi = await agent_login(client, manager_headers)
+    agent_id = (await client.get("/agents", headers=manager_headers)).json()[0]["id"]
+    app_id = await new_application(client)
+    await act(client, ravi, app_id, "accept")
+
+    deleted = await client.delete(f"/agents/{agent_id}", headers=manager_headers)
+    assert deleted.status_code == 409 and deleted.json()["error"]["code"] == "AGENT_HAS_APPLICATIONS"
+
+    await client.patch(f"/agents/{agent_id}", json={"active": False}, headers=manager_headers)
+    app = (await client.get("/applications", headers=manager_headers)).json()[0]
+    assert app["status"] == "unassigned" and "agentId" not in app
+    assert app["history"][-1]["action"] == "Returned to open applications"
+
+
+# ---------- customers ----------
+
+@pytest.mark.asyncio
+async def test_manager_sees_applicants_as_customers(client, manager_headers):
+    await new_application(client)
+    await new_application(client, fullName="Usman K")  # same mobile -> same customer
+    await new_application(client, mobile="9797979797", fullName="Asha Rao", email="asha@example.com")
 
     res = await client.get("/customers", headers=manager_headers)
-
     assert res.status_code == 200
-    assert [(c["name"], c["role"]) for c in res.json()] == [("Usman Khan", "customer")]
-    customer = await sign_up(client, email="asha@example.com", mobile="9797979797")
-    assert (await client.get("/customers", headers=customer)).status_code == 403
-
-
-# Test PANs and their simulated scores: ABCPK1234D 805 (Excellent), ABAPG5678D 729 (Good),
-# ABAPA1234D 651 (Fair), ABAPC1234D 526 (Poor - not eligible).
-@pytest.mark.parametrize(("pan", "income", "tenure", "rate"), [
-    ("ABCPK1234D", 60000, 24, 10.0),  # 0 points
-    ("ABCPK1234D", 30000, 24, 11.4),  # income +1
-    ("ABAPG5678D", 30000, 24, 14.0),  # score 700-749 +1, income +1
-    ("ABAPA1234D", 30000, 48, 15.0),  # score 650-699 +2, income +1, tenure +1 -> capped at the last rate
-])
-@pytest.mark.asyncio
-async def test_quote_and_saved_application_use_the_same_price(client, pan, income, tenure, rate):
-    headers = await sign_up(client)
-    quote = (await client.post("/eligibility/quote", headers=headers,
-                               json={"pan": pan, "amount": 200000, "income": income, "tenure": tenure})).json()
-    assert quote["ratePa"] == rate
-    assert quote["totalPayable"] == quote["emi"] * tenure
-    assert quote["totalInterest"] == quote["totalPayable"] - 200000
-
-    app = (await submit(client, headers, form(pan=pan, income=income, tenure=tenure))).json()["application"]
-    assert (app["creditScore"], app["interestRatePa"], app["emi"]) == (quote["creditScore"], rate, quote["emi"])
-
-
-@pytest.mark.asyncio
-async def test_quote_with_only_pan_returns_the_credit_score(client):
-    headers = await sign_up(client)
-    res = await client.post("/eligibility/quote", headers=headers, json={"pan": "ABCPK1234D"})
-    assert res.status_code == 200
-    assert res.json() == {"creditScore": 805, "creditBand": "Excellent", "eligible": True, "minCreditScore": 650}
-
-
-@pytest.mark.asyncio
-async def test_low_credit_score_is_not_eligible_and_cannot_submit(client):
-    headers = await sign_up(client)
-    quote = (await client.post("/eligibility/quote", headers=headers,
-                               json={"pan": "ABAPC1234D", "amount": 200000, "income": 60000, "tenure": 24})).json()
-    assert quote["eligible"] is False and quote["creditScore"] == 526 and "ratePa" not in quote
-
-    res = await submit(client, headers, form(pan="ABAPC1234D"))
-    assert res.status_code == 422
-    assert res.json()["error"]["code"] == "CREDIT_SCORE_TOO_LOW"
-    assert "pan" in res.json()["error"]["details"]
-
-
-@pytest.mark.asyncio
-async def test_quote_rejects_bad_pan_and_non_customers(client, manager_headers):
-    headers = await sign_up(client)
-    assert (await client.post("/eligibility/quote", headers=headers, json={"pan": "ABCDE1234F"})).status_code == 422
-    assert (await client.post("/eligibility/quote", headers=manager_headers,
-                              json={"pan": "ABCPK1234D"})).status_code == 403
+    assert [(c["name"], c["mobile"], c["applications"]) for c in res.json()] == [
+        ("Asha Rao", "9797979797", 1), ("Usman K", MOBILE, 2)]
+    assert (await client.get("/customers")).status_code == 401

@@ -1,29 +1,27 @@
-"""Loan application rules: submit (with documents), role-scoped listing and document access.
+"""Loan application rules: guest submit (with documents), status tracking, role-scoped listing, the
+agent/manager workflow and document access.
 
-Who sees what (GET /applications):
-    customer - only their own applications
-    manager  - every application
-    agent    - open (unassigned) requests within their radius, plus any assigned to them
+Who sees what:
+    applicant - no account; tracks one application with its id + mobile number (POST /applications/track)
+    agent     - every open (unassigned) application, plus the ones they accepted
+    manager   - every application
 """
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import UploadFile
 
-from app.agents.service import nearby_agents
 from app.common.enums import Role
-from app.common.geo import distance_km
 from app.common.validators import bank_name_from_ifsc
+from app.core.config import BUSINESS_RULES, DISBURSEMENT, DOCUMENTS
+from app.core.exceptions import BadRequest, Conflict, Forbidden, NotFound, Unprocessable
 from app.eligibility.emi import credit_score_for, emi_for, interest_rate_for
-from app.core.config import BUSINESS_RULES, DOCUMENTS
-from app.core.exceptions import Forbidden, NotFound, Unprocessable
 from app.loans import repository
 from app.loans.models import history_entry
-from app.loans.schemas import ApplicationCreate, ApplicationOut, SubmitResponse
+from app.loans.schemas import ActionRequest, ApplicationCreate, ApplicationOut, SubmitResponse, TrackOut, TrackRequest
+from app.loans.state_machine import AGENT_OWNED_ACTIONS, HISTORY_ACTION, TRANSITIONS, UNASSIGNED
 from app.users import repository as users_repository
-from app.users.models import geo_point
-
-UNASSIGNED = "unassigned"
 
 # First bytes of each allowed file type, so a renamed .exe can't pass as a PDF.
 _SIGNATURES = {
@@ -68,7 +66,9 @@ async def _read_documents(files: dict[str, UploadFile], employment: str) -> dict
     return read
 
 
-async def submit(data: ApplicationCreate, files: dict[str, UploadFile], customer: dict) -> SubmitResponse:
+# ---------- applicant (no login) ----------
+
+async def submit(data: ApplicationCreate, files: dict[str, UploadFile]) -> SubmitResponse:
     credit_score = credit_score_for(data.pan)
     rate = interest_rate_for(credit_score, data.income, data.tenure)
     if rate is None:
@@ -86,34 +86,31 @@ async def submit(data: ApplicationCreate, files: dict[str, UploadFile], customer
         for key, d in documents.items()
     ])
 
-    location = data.location.model_dump()
-    area_agents = len(await nearby_agents(location))
-    radius = BUSINESS_RULES["assignment_radius_km"]
-    shared_note = (
-        f"Visible to the manager and {area_agents} agent{'s' if area_agents != 1 else ''} within {radius} km"
-        if area_agents else "Visible to the manager. No active agent covers this location yet"
-    )
     application = {
         "_id": application_id,
-        "customer_id": customer["_id"],
+        "customer_id": data.mobile,
         "agent_id": None,
+        "agent_name": None,
         "status": UNASSIGNED,
-        **data.model_dump(exclude={"location", "bank", "consent", "dob"}),
+        **data.model_dump(exclude={"bank", "consent", "dob"}),
         "dob": data.dob.isoformat(),
         "credit_score": credit_score,
         "interest_rate_pa": rate,
         "emi": emi_for(data.amount, data.tenure, rate),
-        "location": geo_point(location["lat"], location["lng"]),
         "bank": {**data.bank.model_dump(), "bank_name": bank_name_from_ifsc(data.bank.ifsc)},
         "documents": {
             key: {"file_id": file_id, "name": d["name"], "size": len(d["data"]), "type": d["content_type"],
                   "uploaded_at": now}
             for (key, d), file_id in zip(documents.items(), file_ids, strict=True)
         },
+        "agent_decision": None,
+        "manager_decision": None,
+        "disbursement": None,
         "consent_at": now,
         "history": [
-            history_entry(now, customer, "Application submitted", f"Loan request for ₹{data.amount:,}"),
-            history_entry(now, None, "Sent to manager & area agents", shared_note),
+            history_entry(now, {"role": "customer", "name": data.full_name}, "Application submitted",
+                          f"Loan request for ₹{data.amount:,}"),
+            history_entry(now, None, "Sent to agents", "Visible to every active agent. The first one to accept it reviews it."),
         ],
         "created_at": now,
         "updated_at": now,
@@ -123,45 +120,104 @@ async def submit(data: ApplicationCreate, files: dict[str, UploadFile], customer
     except Exception:
         await repository.delete_files(file_ids)  # don't leave orphaned files behind
         raise
-    return SubmitResponse(application=ApplicationOut.from_doc(application), area_agents=area_agents)
+    return SubmitResponse(application=ApplicationOut.from_doc(application))
 
+
+async def track(data: TrackRequest) -> TrackOut:
+    application = await repository.find_by_id(data.application_id)
+    # Same answer for a wrong id and a wrong mobile, so nobody can probe which ids exist.
+    if application is None or application["mobile"] != data.mobile:
+        raise NotFound("APPLICATION_NOT_FOUND", "No application found with this ID and mobile number.")
+    return TrackOut.from_doc(application)
+
+
+# ---------- staff ----------
 
 def _agent_can_see(application: dict, agent: dict) -> bool:
-    if application.get("agent_id") == agent["_id"]:
-        return True
-    return (
-        application["status"] == UNASSIGNED
-        and bool(agent.get("location"))
-        and distance_km(application["location"], agent["location"]) <= BUSINESS_RULES["assignment_radius_km"]
-    )
+    return application["status"] == UNASSIGNED or application.get("agent_id") == agent["_id"]
 
 
 async def list_for(user: dict) -> list[ApplicationOut]:
-    role = user["role"]
-    if role == Role.CUSTOMER:
-        docs = await repository.find({"customer_id": user["_id"]})
-    elif role == Role.MANAGER:
+    if user["role"] == Role.MANAGER:
         docs = await repository.find({})
     else:
-        candidates = await repository.find({"$or": [{"status": UNASSIGNED}, {"agent_id": user["_id"]}]})
-        docs = [d for d in candidates if _agent_can_see(d, user)]
+        docs = await repository.find({"$or": [{"status": UNASSIGNED}, {"agent_id": user["_id"]}]})
     return [ApplicationOut.from_doc(d) for d in docs]
 
 
 async def get_document(application_id: str, doc_type: str, user: dict) -> dict:
-    """The stored file (name, content_type, data) if this user may see the application."""
+    """The stored file (name, content_type, data) if this staff member may see the application."""
     application = await repository.find_by_id(application_id)
     if application is None:
         raise NotFound("APPLICATION_NOT_FOUND", "Application not found.")
-    allowed = (
-        user["role"] == Role.MANAGER
-        or (user["role"] == Role.CUSTOMER and application["customer_id"] == user["_id"])
-        or (user["role"] == Role.AGENT and _agent_can_see(application, user))
-    )
-    if not allowed:
-        raise Forbidden("FORBIDDEN", "You do not have permission to view this document.")
+    if user["role"] == Role.AGENT and not _agent_can_see(application, user):
+        raise Forbidden("FORBIDDEN", "Another agent is handling this application.")
     meta = application["documents"].get(doc_type)
     stored = await repository.find_file(meta["file_id"]) if meta else None
     if stored is None:
         raise NotFound("DOCUMENT_NOT_FOUND", "Document not found.")
     return stored
+
+
+def _utr(ifsc: str, now: datetime) -> str:
+    """Simulated bank transfer reference, e.g. HDFCN26110912345678."""
+    return f"{ifsc[:4]}N{now:%y%m%d}{secrets.randbelow(10**8):08d}"
+
+
+def _check_disburse_mode(mode: str | None, amount: int) -> str:
+    if mode not in DISBURSEMENT["modes"]:
+        raise BadRequest("INVALID_MODE", f"Choose a transfer mode: {', '.join(DISBURSEMENT['modes'])}.")
+    if mode == "IMPS" and amount > DISBURSEMENT["imps_max_amount"]:
+        raise BadRequest("INVALID_MODE", f"IMPS allows up to ₹{DISBURSEMENT['imps_max_amount']:,}. Use NEFT or RTGS.")
+    if mode == "RTGS" and amount < DISBURSEMENT["rtgs_min_amount"]:
+        raise BadRequest("INVALID_MODE", f"RTGS is for ₹{DISBURSEMENT['rtgs_min_amount']:,} and above. Use IMPS or NEFT.")
+    return mode
+
+
+async def act(application_id: str, data: ActionRequest, user: dict) -> ApplicationOut:
+    """Accept / approve / reject / disburse, following app/loans/state_machine.py."""
+    role = user["role"]
+    rule = TRANSITIONS.get((data.action, role))
+    if rule is None:
+        raise Forbidden("FORBIDDEN", f"A {role} can't {data.action} an application.")
+    allowed_from, new_status = rule
+
+    application = await repository.find_by_id(application_id)
+    if application is None:
+        raise NotFound("APPLICATION_NOT_FOUND", "Application not found.")
+    if role == Role.AGENT and data.action in AGENT_OWNED_ACTIONS and application.get("agent_id") != user["_id"]:
+        raise Forbidden("NOT_YOUR_APPLICATION", "Only the agent who accepted this application can decide on it.")
+    if data.action == "reject" and (not data.reason or len(data.reason) < 3):
+        raise Unprocessable("VALIDATION_ERROR", "Give a reason for the rejection.", {"reason": "Give a reason for the rejection."})
+
+    now = datetime.now(UTC)
+    by = user["name"]
+    changes: dict[str, Any] = {"status": new_status, "updated_at": now}
+    note = data.note
+    if data.action == "accept":
+        changes |= {"agent_id": user["_id"], "agent_name": by}
+        note = f"{by} accepted this application"
+    elif data.action in ("approve", "reject"):
+        decision = ("recommended" if data.action == "approve" else "rejected") if role == Role.AGENT \
+            else ("approved" if data.action == "approve" else "rejected")
+        key = "agent_decision" if role == Role.AGENT else "manager_decision"
+        changes[key] = {"decision": decision, "note": data.note, "reason": data.reason, "at": now, "by": by}
+        note = data.reason if data.action == "reject" else data.note
+    else:  # disburse
+        mode = _check_disburse_mode(data.mode, application["amount"])
+        utr = _utr(application["bank"]["ifsc"], now)
+        changes["disbursement"] = {"amount": application["amount"], "mode": mode, "utr": utr, "at": now, "by": by}
+        bank = application["bank"]
+        note = f"₹{application['amount']:,} sent to {bank['bank_name']} •••• {bank['account'][-4:]} via {mode} · UTR {utr}"
+
+    match: dict[str, Any] = {"status": {"$in": list(allowed_from)}}
+    if role == Role.AGENT and data.action in AGENT_OWNED_ACTIONS:
+        match["agent_id"] = user["_id"]
+    updated = await repository.transition(application_id, match, changes,
+                                          history_entry(now, user, HISTORY_ACTION[(data.action, role)], note))
+    if updated is None:  # status changed since we read it (e.g. another agent accepted first)
+        if data.action == "accept":
+            raise Conflict("ALREADY_TAKEN", "Another agent has already accepted this application.")
+        done = {"approve": "approved", "reject": "rejected", "disburse": "disbursed"}[data.action]
+        raise Conflict("INVALID_STATUS", f"This application can't be {done} right now (status: {application['status']}).")
+    return ApplicationOut.from_doc(updated)

@@ -1,4 +1,4 @@
-"""Request bodies for the manager's agent forms, and the public "agents near you" card."""
+"""Request bodies for the manager's "Add / edit agent" forms."""
 from pydantic import EmailStr, Field, field_validator
 
 from app.common.responses import CamelModel
@@ -13,7 +13,7 @@ class AgentCreate(CamelModel):
     password: str = Field(min_length=6, max_length=128)  # the agent signs in with this
     area: str = Field(min_length=1, max_length=100)  # operating area, e.g. "Banjara Hills"
     city: str = Field(default="Hyderabad", max_length=100)
-    location: LatLng  # agent sees loan requests within 2 km of this point
+    location: LatLng | None = None  # optional, informational only (any agent can take any application)
     active: bool = True  # inactive agents can't sign in
 
     @field_validator("name", "area", "city", mode="before")
@@ -59,13 +59,3 @@ class AgentUpdate(CamelModel):
     def _mobile(cls, v: str | None) -> str | None:
         return normalize_mobile(v) if v else v
 
-
-class NearbyAgent(CamelModel):
-    """What a customer may see about an agent near them (no email, mobile or employee code)."""
-
-    id: str
-    name: str
-    area: str | None = None
-    city: str | None = None
-    location: LatLng
-    distance_km: float

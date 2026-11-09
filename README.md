@@ -44,18 +44,46 @@ loan-management-backend/
 Each module package contains `router.py`, `schemas.py`, `service.py`, `repository.py` and `models.py`.
 Build in this order: `models.py` -> `repository.py` -> `schemas.py` -> `service.py` -> `router.py` -> tests.
 
-## Run locally (without Docker)
+## Run with Docker (recommended - no MongoDB install or Atlas account needed)
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and open it, then:
+
+```bash
+cp .env.example .env      # first time only; the defaults work as-is
+docker compose up -d      # first run downloads MongoDB and builds the API (a few minutes)
+```
+
+- API docs: http://localhost:8000/docs
+- Manager login: `manager@example.com` / `manager123` (from `.env`, created automatically on start)
+- Browse the data with MongoDB Compass: `mongodb://localhost:27017`, database `lendwise`
+
+Two containers run: `mongo` (official `mongo:7.0` image) and `api` (this code, built from the `Dockerfile`).
+Your data lives in the Docker volume `lendwise_mongo_data`, so it survives restarts. Each developer has their own database.
+Edits in `app/` reload the API automatically. After changing `requirements.txt`, run `docker compose up -d --build`.
+
+| Command | What it does |
+|---|---|
+| `docker compose up -d` | Start MongoDB + API in the background |
+| `docker compose ps` | Show whether both are running |
+| `docker compose logs -f api` | Follow the API logs (Ctrl+C to stop following) |
+| `docker compose restart api` | Restart only the API |
+| `docker compose down` | Stop everything (data is kept) |
+| `docker compose down -v` | Stop and **delete all data** (fresh start) |
+| `docker compose exec mongo mongosh lendwise` | MongoDB shell |
+
+Port 8000 or 27017 already in use? Stop the other program, or pick other ports: `API_PORT=8001 MONGO_PORT=27018 docker compose up -d`.
+
+## Run without Docker
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env              # then set MONGODB_URI (Atlas: replace <db_password>) and SECRET_KEY
+cp .env.example .env              # MONGODB_URI: mongodb://localhost:27017 (Docker MongoDB) or your Atlas URL
+docker compose up -d mongo        # optional: only the database in Docker
 python -m scripts.create_manager  # one time: creates the manager account
 uvicorn app.main:app --reload     # API docs: http://localhost:8000/docs
 pytest -v                         # tests use an in-memory database
 ```
-
-Or with Docker: `docker compose up --build`.
 
 Settings defaults (business rules, auth, documents, pagination) live in `app/core/config.py`; any value can be overridden with an environment variable in `.env`.
 

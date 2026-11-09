@@ -1,11 +1,10 @@
 """Agent management. Only managers create agents; an agent then signs in with POST /auth/login."""
 from datetime import UTC, datetime
 
-from app.agents.schemas import AgentCreate, AgentUpdate, NearbyAgent
+from app.agents.schemas import AgentCreate, AgentUpdate
 from app.common.enums import Role
-from app.common.geo import distance_km
-from app.core.config import BUSINESS_RULES
-from app.core.exceptions import NotFound
+from app.core.exceptions import Conflict, NotFound
+from app.loans import repository as loans_repository
 from app.core.security import hash_password
 from app.users import repository as users_repository
 from app.users.models import geo_point, new_user
@@ -26,7 +25,7 @@ async def create_agent(data: AgentCreate, manager: dict) -> UserOut:
         employee_code=f"AG-{1000 + number}",  # AG-1001, AG-1002, ...
         area=data.area,
         city=data.city,
-        location=geo_point(data.location.lat, data.location.lng),
+        location=geo_point(data.location.lat, data.location.lng) if data.location else None,
         created_by=manager["_id"],
     ))
     return UserOut.from_doc(agent)
@@ -54,25 +53,16 @@ async def update_agent(agent_id: str, data: AgentUpdate) -> UserOut:
         location = changes.pop("location")
         changes["location"] = geo_point(location["lat"], location["lng"])
     changes["updated_at"] = datetime.now(UTC)
-    return UserOut.from_doc(await users_repository.update(agent["_id"], changes))
+    updated = await users_repository.update(agent["_id"], changes)
+    if data.active is False:
+        await loans_repository.release_agent_applications(agent["_id"], changes["updated_at"])
+    return UserOut.from_doc(updated)
 
 
 async def delete_agent(agent_id: str) -> None:
     agent = await _get_agent(agent_id)
+    if await loans_repository.count({"agent_id": agent["_id"]}):
+        raise Conflict("AGENT_HAS_APPLICATIONS",
+                       "This agent has applications. Deactivate the agent instead so their history is kept.")
     await users_repository.delete(agent["_id"])
 
-
-async def nearby_agents(point: dict) -> list[NearbyAgent]:
-    """Active agents whose location is within the assignment radius of point {"lat", "lng"}, nearest first."""
-    radius = BUSINESS_RULES["assignment_radius_km"]
-    found = []
-    for agent in await users_repository.list_by_role(Role.AGENT):
-        if not agent.get("active", True) or not agent.get("location"):
-            continue
-        distance = distance_km(point, agent["location"])
-        if distance <= radius:
-            lng, lat = agent["location"]["coordinates"]
-            found.append(NearbyAgent(id=str(agent["_id"]), name=agent["name"], area=agent.get("area"),
-                                     city=agent.get("city"), location={"lat": lat, "lng": lng},
-                                     distance_km=round(distance, 2)))
-    return sorted(found, key=lambda a: a.distance_km)

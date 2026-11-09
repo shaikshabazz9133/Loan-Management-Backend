@@ -4,6 +4,8 @@ uvicorn[standard]==0.54.0
 pydantic==2.14.3
 pydantic-settings==2.16.2
 email-validator==2.3.0
+python-multipart==0.0.33  # reads the apply form (JSON + document uploads)
+python-dotenv==1.2.4      # scripts/create_manager.py reads .env
 
 # database (MongoDB async driver)
 motor==3.7.1

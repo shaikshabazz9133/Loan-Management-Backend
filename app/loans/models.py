@@ -2,14 +2,17 @@
 
 "applications" collection (one document per application):
     _id            "LN-1001" (readable id shown to customers)
-    customer_id    ObjectId of the customer (users collection)
-    agent_id       ObjectId of the agent who accepted it, or None
-    status         "unassigned" on submit (see the frontend's STATUS list for the rest of the workflow)
+    customer_id    the applicant's mobile number (customers have no account)
+    agent_id       ObjectId of the agent who accepted it, or None;  agent_name  their name
+    status         see app/loans/state_machine.py (unassigned -> assigned -> ... -> disbursed)
     full_name, mobile, email, dob ("YYYY-MM-DD"), aadhaar, pan
     amount, tenure (months), purpose, income (monthly), employment
-    address, city, pincode, location (GeoJSON Point [lng, lat])
+    credit_score, interest_rate_pa, emi
+    address, city, pincode
     bank           {holder, account, ifsc, bank_name, type}
     documents      {"pan": {file_id, name, size, type, uploaded_at}, ...}
+    agent_decision / manager_decision   {decision, note, reason, at, by}
+    disbursement   {amount, mode, utr, at, by}
     history        [{id, at, actor_role, actor_name, action, note}]
     created_at, updated_at
 

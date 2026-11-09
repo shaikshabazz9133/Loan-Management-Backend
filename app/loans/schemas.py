@@ -2,7 +2,10 @@
 
 ApplicationCreate is the "data" part of the multipart POST /applications; the documents travel as files
 in the same request. Field names match the frontend form, so validation errors land under the right input.
+Customers have no account: an application is identified by its id (LN-1001) + the applicant's mobile number.
 """
+from typing import Literal
+
 from datetime import date, datetime
 
 from pydantic import EmailStr, Field, field_validator
@@ -17,7 +20,6 @@ from app.common.validators import (
     normalize_pan,
 )
 from app.core.config import BUSINESS_RULES, DOCUMENTS, get_settings
-from app.users.schemas import LatLng
 
 
 def _age_on(dob: date, today: date) -> int:
@@ -76,11 +78,10 @@ class ApplicationCreate(CamelModel):
     purpose: str
     income: int
     employment: str
-    # address & GPS
+    # address
     address: str = Field(min_length=5, max_length=300)
     city: str = Field(min_length=2, max_length=100)
     pincode: str = Field(pattern=r"^\d{6}$")
-    location: LatLng
     # disbursement account
     bank: BankAccountIn
     consent: bool
@@ -192,7 +193,6 @@ class ApplicationOptions(CamelModel):
     applicant_age: AmountRange
     max_foir: float
     min_credit_score: int
-    assignment_radius_km: float
     aadhaar_demo_mode: bool
     documents: DocumentRules
 
@@ -210,7 +210,6 @@ class ApplicationOptions(CamelModel):
             applicant_age=rules["applicant_age"],
             max_foir=rules["max_foir"],
             min_credit_score=rules["min_credit_score"],
-            assignment_radius_km=rules["assignment_radius_km"],
             aadhaar_demo_mode=get_settings().aadhaar_demo_mode,
             documents=DocumentRules(
                 max_size_mb=DOCUMENTS["max_size_mb"],
@@ -245,10 +244,29 @@ class HistoryEntry(CamelModel):
     note: str | None = None
 
 
+class Decision(CamelModel):
+    decision: str  # agent: "recommended" / "rejected"; manager: "approved" / "rejected"
+    note: str | None = None
+    reason: str | None = None  # required when rejected; shown to the customer
+    at: datetime
+    by: str
+
+
+class Disbursement(CamelModel):
+    amount: int
+    mode: str  # IMPS / NEFT / RTGS
+    utr: str  # bank transfer reference
+    at: datetime
+    by: str
+
+
 class ApplicationOut(CamelModel):
+    """Full application, for agents and managers."""
+
     id: str
-    customer_id: str
+    customer_id: str  # the applicant's mobile number (customers have no account)
     agent_id: str | None = None
+    agent_name: str | None = None
     status: str
     full_name: str
     mobile: str
@@ -261,32 +279,114 @@ class ApplicationOut(CamelModel):
     purpose: str
     income: int
     employment: str
-    credit_score: int  # simulated bureau score at submission time
-    interest_rate_pa: float  # priced from credit score, income and tenure at submission time
-    emi: int
+    credit_score: int | None = None  # simulated bureau score at submission time
+    interest_rate_pa: float | None = None  # priced from credit score, income and tenure at submission time
+    emi: int | None = None
     address: str
     city: str
     pincode: str
-    location: LatLng
     bank: BankAccountOut
     documents: dict[str, DocumentOut]
+    agent_decision: Decision | None = None
+    manager_decision: Decision | None = None
+    disbursement: Disbursement | None = None
     history: list[HistoryEntry]
     created_at: datetime
     updated_at: datetime
 
     @classmethod
     def from_doc(cls, doc: dict) -> "ApplicationOut":
-        lng, lat = doc["location"]["coordinates"]
+        skip = {"_id", "customer_id", "agent_id", "documents"}
         return cls(
-            **{k: v for k, v in doc.items() if k not in {"_id", "customer_id", "agent_id", "location", "documents"}},
+            **{k: v for k, v in doc.items() if k not in skip},
             id=doc["_id"],
-            customer_id=str(doc["customer_id"]),
+            customer_id=doc["mobile"],
             agent_id=str(doc["agent_id"]) if doc.get("agent_id") else None,
-            location=LatLng(lat=lat, lng=lng),
             documents={key: {k: v for k, v in meta.items() if k != "file_id"} for key, meta in doc["documents"].items()},
         )
 
 
 class SubmitResponse(CamelModel):
     application: ApplicationOut
-    area_agents: int  # active agents within the radius who can see the request right now
+
+
+# ---------- public status tracking (no login) ----------
+class TrackRequest(CamelModel):
+    application_id: str = Field(min_length=3, max_length=20)
+    mobile: str
+
+    @field_validator("application_id")
+    @classmethod
+    def _id(cls, v: str) -> str:
+        return v.strip().upper()
+
+    @field_validator("mobile")
+    @classmethod
+    def _mobile(cls, v: str) -> str:
+        return normalize_mobile(v)
+
+
+class StatusStep(CamelModel):
+    action: str
+    at: datetime
+
+
+class CustomerDecision(CamelModel):
+    decision: str
+    reason: str | None = None  # only rejection reasons are shown to the customer
+    at: datetime
+
+
+class TrackOut(CamelModel):
+    """What the applicant sees on the status page: no internal notes, no full ID or account numbers."""
+
+    id: str
+    status: str
+    full_name: str
+    amount: int
+    tenure: int
+    interest_rate_pa: float | None = None
+    emi: int | None = None
+    bank_label: str  # e.g. "HDFC Bank •••• 7890"
+    agent_name: str | None = None
+    agent_decision: CustomerDecision | None = None
+    manager_decision: CustomerDecision | None = None
+    disbursement: Disbursement | None = None
+    steps: list[StatusStep]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_doc(cls, doc: dict) -> "TrackOut":
+        def public(decision: dict | None) -> dict | None:
+            if not decision:
+                return None
+            return {"decision": decision["decision"], "at": decision["at"],
+                    "reason": decision.get("reason") if decision["decision"] == "rejected" else None}
+
+        bank = doc["bank"]
+        return cls(
+            id=doc["_id"], status=doc["status"], full_name=doc["full_name"], amount=doc["amount"],
+            tenure=doc["tenure"], interest_rate_pa=doc.get("interest_rate_pa"), emi=doc.get("emi"),
+            bank_label=f"{bank['bank_name']} •••• {bank['account'][-4:]}", agent_name=doc.get("agent_name"),
+            agent_decision=public(doc.get("agent_decision")), manager_decision=public(doc.get("manager_decision")),
+            disbursement=doc.get("disbursement"),
+            steps=[{"action": h["action"], "at": h["at"]} for h in doc["history"]],
+            created_at=doc["created_at"], updated_at=doc["updated_at"],
+        )
+
+
+# ---------- agent / manager actions ----------
+class ActionRequest(CamelModel):
+    """One endpoint for every step: accept (agent), approve / reject (agent or manager), disburse (manager)."""
+
+    action: Literal["accept", "approve", "reject", "disburse"]
+    note: str | None = Field(default=None, max_length=500)
+    reason: str | None = Field(default=None, max_length=500)  # required for reject
+    mode: str | None = None  # required for disburse: IMPS / NEFT / RTGS
+
+    @field_validator("note", "reason", mode="before")
+    @classmethod
+    def _strip_text(cls, v):
+        v = _strip(v)
+        return v or None

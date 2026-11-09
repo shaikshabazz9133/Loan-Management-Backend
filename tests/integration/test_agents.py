@@ -55,15 +55,14 @@ async def test_inactive_agent_cannot_sign_in(client, manager_headers):
 
 
 @pytest.mark.asyncio
-async def test_only_managers_can_create_agents(client):
-    customer = await client.post("/auth/register", json={
-        "name": "Aarav Mehta", "email": "aarav@example.com", "mobile": "9876543210",
-        "password": "secret123", "termsAccepted": True,
-    })
-    headers = {"Authorization": f"Bearer {customer.json()['accessToken']}"}
+async def test_only_managers_can_create_agents(client, manager_headers):
+    await client.post("/agents", json=AGENT, headers=manager_headers)
+    login = await client.post("/auth/login", json={"identifier": AGENT["email"], "password": AGENT["password"]})
+    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
 
-    assert (await client.post("/agents", json=AGENT, headers=headers)).status_code == 403
-    assert (await client.post("/agents", json=AGENT)).status_code == 401
+    other = {**AGENT, "email": "new@example.com", "mobile": "9000000099"}
+    assert (await client.post("/agents", json=other, headers=headers)).status_code == 403
+    assert (await client.post("/agents", json=other)).status_code == 401
 
 
 @pytest.mark.asyncio
@@ -71,6 +70,12 @@ async def test_agent_email_must_be_unique_across_all_users(client, manager_heade
     res = await client.post("/agents", json={**AGENT, "email": "manager@test.com"}, headers=manager_headers)
     assert res.status_code == 409
     assert res.json()["error"]["code"] == "EMAIL_TAKEN"
+
+
+@pytest.mark.asyncio
+async def test_agent_location_is_optional(client, manager_headers):
+    res = await client.post("/agents", json={k: v for k, v in AGENT.items() if k != "location"}, headers=manager_headers)
+    assert res.status_code == 201 and "location" not in res.json()
 
 
 @pytest.mark.asyncio

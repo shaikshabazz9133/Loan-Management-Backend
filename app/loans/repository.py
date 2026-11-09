@@ -2,8 +2,11 @@
 from typing import Any
 
 from bson import Binary, ObjectId
+from pymongo import ReturnDocument
 
 from app.db.mongo import get_database
+from app.loans.models import history_entry
+from app.loans.state_machine import ASSIGNED, UNASSIGNED
 
 
 def _applications():
@@ -43,3 +46,27 @@ async def delete_files(file_ids: list[ObjectId]) -> None:
 
 async def find_file(file_id: ObjectId) -> dict | None:
     return await _files().find_one({"_id": file_id})
+
+
+async def count(query: dict[str, Any]) -> int:
+    return await _applications().count_documents(query)
+
+
+async def transition(application_id: str, match: dict[str, Any], changes: dict[str, Any],
+                     history: dict[str, Any]) -> dict | None:
+    """Atomically apply a status change only if the application still matches (e.g. still unassigned).
+    Returns the updated document, or None if someone else changed it first."""
+    return await _applications().find_one_and_update(
+        {"_id": application_id, **match},
+        {"$set": changes, "$push": {"history": history}},
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def release_agent_applications(agent_id: ObjectId, now) -> None:
+    """A deactivated agent's accepted (not yet decided) applications go back to the open pool."""
+    await _applications().update_many(
+        {"agent_id": agent_id, "status": ASSIGNED},
+        {"$set": {"status": UNASSIGNED, "agent_id": None, "agent_name": None, "updated_at": now},
+         "$push": {"history": history_entry(now, None, "Returned to open applications", "The agent was deactivated")}},
+    )
