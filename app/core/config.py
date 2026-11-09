@@ -25,21 +25,37 @@ BUSINESS_RULES: dict[str, Any] = {
     "assignment_radius_km": 2,
     "min_credit_score": 650,
     "max_foir": 0.5,  # EMI must be <= 50% of monthly income
-    "interest_rate_pa": 12.0,
+    # Interest rate pricing (risk points, like a bank's risk grade). Each factor adds points; total points pick the
+    # rate. A credit score below min_credit_score is not eligible at all.
+    "pricing": {
+        "credit_score_points": [{"min": 750, "points": 0}, {"min": 700, "points": 1}, {"min": 650, "points": 2}],
+        "income_points": [{"min": 50000, "points": 0}, {"min": 0, "points": 1}],  # monthly income >= min
+        "tenure_points": [{"max": 36, "points": 0}, {"max": None, "points": 1}],  # tenure <= max (None = any)
+        "rates_by_points": [10.0, 11.4, 14.0, 15.0],  # index = total points; more points than listed -> last rate
+    },
     "tenures_months": [6, 12, 18, 24, 36, 48, 60, 72, 84],
     "loan_amount": {"min": 10000, "max": 5000000},
+    "loan_amount_presets": [50000, 100000, 200000, 500000],  # quick-pick chips on the apply form
+    "min_monthly_income": 5000,
     "applicant_age": {"min": 21, "max": 60},
     "loan_purposes": ["Personal", "Home renovation", "Education", "Medical", "Business", "Vehicle", "Wedding",
                       "Debt consolidation"],
     "employment_types": ["Salaried", "Self-employed", "Business owner", "Freelancer", "Retired"],
+    "bank_account_types": ["Savings", "Current"],
 }
 
 DOCUMENTS: dict[str, Any] = {
     "max_size_mb": 5,
     "allowed_mime_types": ["image/jpeg", "image/png", "image/webp", "application/pdf"],
     "presigned_url_ttl_seconds": 300,
-    "required": ["pan", "aadhaar", "bank", "address"],
-    "required_if_salaried": ["salary"],
+    # only_for: the document is required (and offered as required) only for that employment type
+    "types": [
+        {"key": "pan", "label": "PAN card", "hint": "Front side, clearly readable"},
+        {"key": "aadhaar", "label": "Aadhaar card", "hint": "Front & back in one file"},
+        {"key": "salary", "label": "Salary slips", "hint": "Last 3 months", "only_for": "Salaried"},
+        {"key": "bank", "label": "Bank statements", "hint": "Last 6 months"},
+        {"key": "address", "label": "Address proof", "hint": "Utility bill, rent agreement or passport"},
+    ],
 }
 
 DISBURSEMENT: dict[str, Any] = {

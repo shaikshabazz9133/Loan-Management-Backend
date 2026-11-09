@@ -13,10 +13,11 @@ from fastapi.responses import JSONResponse
 class AppError(Exception):
     status_code = status.HTTP_400_BAD_REQUEST
 
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, details: dict[str, str] | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.details = details  # optional {"fieldName": "message"} shown under form fields
 
 
 class BadRequest(AppError):
@@ -39,6 +40,12 @@ class Conflict(AppError):
     status_code = status.HTTP_409_CONFLICT
 
 
+class Unprocessable(AppError):
+    """Input that passed the schema but breaks a rule, e.g. a missing document. Pass details for per-field messages."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
 def _error(status_code: int, code: str, message: str, details: dict | None = None) -> JSONResponse:
     body: dict = {"code": code, "message": message}
     if details:
@@ -49,7 +56,7 @@ def _error(status_code: int, code: str, message: str, details: dict | None = Non
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
-        return _error(exc.status_code, exc.code, exc.message)
+        return _error(exc.status_code, exc.code, exc.message, exc.details)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

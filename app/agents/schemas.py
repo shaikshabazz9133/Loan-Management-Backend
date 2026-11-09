@@ -1,4 +1,4 @@
-"""Request body for the manager's "Add new agent" form."""
+"""Request bodies for the manager's agent forms, and the public "agents near you" card."""
 from pydantic import EmailStr, Field, field_validator
 
 from app.common.responses import CamelModel
@@ -58,3 +58,14 @@ class AgentUpdate(CamelModel):
     @classmethod
     def _mobile(cls, v: str | None) -> str | None:
         return normalize_mobile(v) if v else v
+
+
+class NearbyAgent(CamelModel):
+    """What a customer may see about an agent near them (no email, mobile or employee code)."""
+
+    id: str
+    name: str
+    area: str | None = None
+    city: str | None = None
+    location: LatLng
+    distance_km: float

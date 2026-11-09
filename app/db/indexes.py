@@ -12,3 +12,7 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
     await db.users.create_index("mobile", unique=True)
     await db.users.create_index([("role", 1), ("active", 1)])
     await db.users.create_index([("location", "2dsphere")])
+    await db.applications.create_index([("customer_id", 1), ("created_at", -1)])
+    await db.applications.create_index([("status", 1), ("created_at", -1)])
+    await db.applications.create_index("agent_id")
+    await db.application_files.create_index("application_id")
