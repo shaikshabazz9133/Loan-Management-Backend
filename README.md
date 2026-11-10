@@ -1,7 +1,6 @@
 # LendWise Loan Management - Backend (FastAPI + MongoDB)
 
-Backend skeleton for the LendWise React frontend. **Structure only - endpoints are not implemented yet.**
-Each module's `router.py` docstring lists the endpoints to build (method, path, roles, purpose) - 72 APIs across 14 modules.
+Backend for the LendWise React frontend - 15 APIs across 6 modules, all used by the frontend.
 
 ## Project structure
 
@@ -17,15 +16,7 @@ loan-management-backend/
 │   ├── customers/         # manager views of customers
 │   ├── loans/             # loan applications + status state machine
 │   ├── eligibility/       # KYC, bank checks, business rules, EMI
-│   ├── agents/            # agent management
-│   ├── assignments/       # open requests, accept / decline
-│   ├── reviews/           # agent verification, credit check, recommend
-│   ├── managers/          # approve / reject / disburse
-│   ├── documents/         # S3 uploads and downloads
-│   ├── notifications/     # in-app inbox
-│   ├── audit/             # audit trail
-│   ├── analytics/         # dashboards and reports
-│   └── support/           # health checks, help & support
+│   └── agents/            # agent management
 ├── tests/
 │   ├── unit/
 │   ├── integration/
